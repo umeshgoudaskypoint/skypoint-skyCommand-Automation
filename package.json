@@ -34,12 +34,15 @@
     "install:browsers": "playwright install chromium",
     "clean": "rimraf reports/* && rimraf test-results/*",
     "auth:save": "node scripts/save-auth.mjs",
-    "auth:clear": "rimraf playwright/.auth"
+    "auth:clear": "rimraf playwright/.auth",
+    "mail:report": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/send-report-email.ps1",
+    "mail:preview": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/send-report-email.ps1 -DryRun"
   },
   "dependencies": {
     "@playwright/test": "^1.49.0",
     "@sendgrid/mail": "^8.1.0",
-    "dotenv": "^16.4.5"
+    "dotenv": "^16.4.5",
+    "nodemailer": "^9.1.1"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",

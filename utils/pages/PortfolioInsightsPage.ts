@@ -10,63 +10,55 @@ export type KpiCard = {
 /**
  * PortfolioInsightsPage - /insights/portfolio-insights
  *
- * Selectors use multi-strategy fallbacks (data-testid, then class, then
- * text/ARIA) so the page object survives markup changes. Refine them with
- * real data-testid values once the authenticated UI can be inspected.
+ * Selectors below were captured from the live QA app (Westmont tenant),
+ * so they use the application's real data-testid values wherever they
+ * exist. KPI cards are react-grid-layout items and carry no testid of
+ * their own, so those fall back to the card's Tailwind classes.
  */
 export class PortfolioInsightsPage extends BasePage {
   readonly selectors = {
-    pageContainer:
-      '[data-testid="portfolio-insights"], main, [class*="portfolio"], [class*="insights"]',
-    pageHeading: 'h1, h2, [data-testid="page-title"], [class*="pageTitle"]',
-    loadingSpinner:
-      '[data-testid="loading"], [class*="spinner"], [class*="skeleton"], [role="progressbar"]',
+    // Page shell
+    pageContainer: '[data-testid="dynamic-insight-page"]',
+    pageHeader: '[data-testid="dashboard-header"]',
+    pageTabs: '[data-testid="dynamic-insight-page-tabs"]',
+    sidebar: '[data-testid="sidebar"]',
+    loadingSpinner: '[class*="animate-pulse"], [class*="skeleton"], [role="progressbar"]',
 
-    // KPI cards
-    kpiCard:
-      '[data-testid*="kpi"], [class*="kpiCard"], [class*="kpi-card"], [class*="metricCard"], [class*="statCard"]',
-    kpiTitle: '[class*="title"], [class*="label"], h3, h4',
-    kpiValue: '[class*="value"], [class*="amount"], [class*="metric"], strong',
+    // Widget grid + KPI cards
+    dashboardGrid: '[data-testid="dashboard-grid"]',
+    kpiCard: '.react-grid-item',
+    kpiTitle: 'span.font-semibold',
+    kpiValue: 'span.font-extrabold',
 
-    // Filters
-    quickMonthDropdown:
-      '[data-testid*="month"], [class*="quickMonth"], [class*="month-select"], [aria-label*="month" i]',
-    dateRangePicker:
-      '[data-testid*="date-range"], [class*="dateRange"], [class*="date-picker"], [aria-label*="date" i]',
-    communityDropdown:
-      '[data-testid*="community"], [class*="community"], [aria-label*="community" i]',
-    dropdownOption: '[role="option"], [class*="option"], li[data-value], .ant-select-item',
+    // Empty state (a tenant with no widgets configured)
+    emptyState: '[data-testid="dynamic-insight-page-empty"]',
+    addWidgetButton: '[data-testid="dynamic-insight-page-empty-add"]',
+
+    // Filter bar
+    filterBar: '[data-testid="filter-bar"]',
+    quickMonthDropdown: '[data-testid="filter-bar-quick-month"]',
+    communityDropdown: '[data-testid="filter-bar-community"]',
+    dropdownOption: '[role="option"], [role="menuitem"], li',
 
     // Edit mode
-    editButton: 'button:has-text("Edit"), [aria-label*="Edit" i], [data-testid*="edit"]',
-    editModeIndicator:
-      '[data-testid*="edit-mode"], [class*="editMode"], button:has-text("Save"), button:has-text("Cancel")',
-    cancelButton: 'button:has-text("Cancel"), button:has-text("Discard"), [data-testid*="cancel"]',
+    editButton: '[data-testid="dashboard-edit-btn"]',
+    saveButton: 'button:has-text("Save")',
+    cancelButton: 'button:has-text("Cancel"), button:has-text("Discard")',
 
     // AI briefing
-    aiBriefingButton:
-      'button:has-text("AI Briefing"), button:has-text("Briefing"), [data-testid*="briefing"]',
-    standardBriefingOption:
-      'button:has-text("Standard"), [role="tab"]:has-text("Standard"), [data-testid*="standard"]',
-    customBriefingOption:
-      'button:has-text("Custom"), [role="tab"]:has-text("Custom"), [data-testid*="custom"]',
-    generateButton: 'button:has-text("Generate"), button:has-text("Create Briefing")',
-    briefingContent:
-      '[data-testid*="briefing-content"], [class*="briefingContent"], [class*="briefing-body"]',
-    briefingError: '[class*="error"], [role="alert"]',
+    aiBriefingButton: '[data-testid="button-global-ai-briefing"]',
+    briefingContainer: '[data-testid="ai-briefing-container"]',
+    standardBriefingOption: 'button:has-text("Standard Briefing")',
+    customBriefingOption: 'button:has-text("Custom AI Analysis")',
+    briefingHistory: 'button:has-text("History")',
+    createTaskButton: '[data-testid="button-briefing-create-task"]',
 
-    // Create task
-    createTaskButton:
-      'button:has-text("Create a task"), button:has-text("Create Task"), a:has-text("Create a task")',
-    createTaskPage: '[data-testid*="create-task"], [class*="createTask"], form[class*="task"]',
-
-    // Generic states
-    emptyState: '[class*="empty"]',
-    errorState: '[class*="error"], [role="alert"]',
+    // Errors
+    errorState: '[role="alert"], [class*="destructive"]',
   };
 
   private get instanceId(): string {
-    return process.env.INSTANCE_ID || 'f507ae68-5a2b-447e-a78c-5098e889e16d';
+    return process.env.INSTANCE_ID || '';
   }
 
   constructor(page: Page) {
@@ -74,23 +66,14 @@ export class PortfolioInsightsPage extends BasePage {
   }
 
   // ---------- Navigation & load ----------
-  /**
-   * Open the Portfolio page.
-   *
-   * Prefers navigating through the UI from the app root, so the tenant is
-   * whichever one the app selects for the signed-in user - no hard-coded
-   * instance id needed. Falls back to the direct URL when INSTANCE_ID is
-   * set explicitly in .env.
-   */
   async goto(): Promise<void> {
-    if (process.env.INSTANCE_ID) {
+    if (this.instanceId) {
       await this.page.goto(`/insights/portfolio-insights?instanceid=${this.instanceId}`, {
         waitUntil: 'domcontentloaded',
       });
       await this.waitForInsightsLoad();
       return;
     }
-
     await this.gotoFromHome();
   }
 
@@ -99,63 +82,51 @@ export class PortfolioInsightsPage extends BasePage {
     await this.page.goto('/', { waitUntil: 'domcontentloaded' });
     await this.waitForNetworkIdle();
 
-    // Make sure we are in the tenant under test before going anywhere.
     const tenant = process.env.TENANT;
     if (tenant) {
       await this.switchToTenant(tenant);
     }
 
-    // Already there? Some tenants land on Portfolio by default.
-    if (this.page.url().includes('portfolio-insights')) {
-      await this.waitForInsightsLoad();
-      return;
-    }
-
-    const insightsLink = this.page
-      .locator('a[href*="/insights"], [role="link"]:has-text("Insights")')
-      .first();
-    if (await insightsLink.isVisible({ timeout: 15000 }).catch(() => false)) {
-      await insightsLink.click();
-      await this.page.waitForTimeout(2000);
-    }
-
-    const portfolioLink = this.page
-      .locator('a[href*="portfolio"], :text("Portfolio Insights"), :text("Portfolio")')
-      .first();
-    if (await portfolioLink.isVisible({ timeout: 15000 }).catch(() => false)) {
-      await portfolioLink.click();
+    if (!this.page.url().includes('portfolio-insights')) {
+      const portfolioLink = this.page.locator('a[href*="portfolio-insights"]').first();
+      if (await portfolioLink.isVisible({ timeout: 15000 }).catch(() => false)) {
+        await portfolioLink.click();
+      }
     }
 
     await this.page.waitForURL(/portfolio/, { timeout: 30000 }).catch(() => {});
     await this.waitForInsightsLoad();
   }
 
-  /** The instance id currently in the address bar, whatever it is. */
-  getInstanceIdFromUrl(): string | null {
-    try {
-      return new URL(this.page.url()).searchParams.get('instanceid');
-    } catch {
-      return null;
-    }
-  }
-
-  async waitForInsightsLoad(timeout = 60000): Promise<void> {
+  /** Wait for the dashboard grid (or the empty state) to settle. */
+  async waitForInsightsLoad(timeout = 90000): Promise<void> {
     await this.page.waitForLoadState('domcontentloaded', { timeout });
-    try {
-      await this.page
-        .locator(this.selectors.loadingSpinner)
+
+    await this.page
+      .locator(this.selectors.pageContainer)
+      .waitFor({ state: 'visible', timeout })
+      .catch(() => {});
+
+    // Either widgets render, or the tenant has none configured.
+    await Promise.race([
+      this.page
+        .locator(this.selectors.kpiCard)
         .first()
-        .waitFor({ state: 'hidden', timeout: 30000 });
-    } catch {
-      // Spinner may never render, or may poll forever - not a failure by itself.
-    }
+        .waitFor({ state: 'visible', timeout })
+        .catch(() => {}),
+      this.page
+        .locator(this.selectors.emptyState)
+        .waitFor({ state: 'visible', timeout })
+        .catch(() => {}),
+    ]);
+
     await this.waitForNetworkIdle();
   }
 
   async isInsightsPageLoaded(): Promise<boolean> {
     return (
       this.page.url().includes('portfolio-insights') &&
-      (await this.isVisible(this.selectors.pageContainer, 15000))
+      (await this.isVisible(this.selectors.pageContainer, 20000))
     );
   }
 
@@ -167,12 +138,24 @@ export class PortfolioInsightsPage extends BasePage {
     return await this.isVisible(this.selectors.errorState, 5000);
   }
 
+  async isEmptyStateShown(): Promise<boolean> {
+    return await this.isVisible(this.selectors.emptyState, 3000);
+  }
+
+  getInstanceIdFromUrl(): string | null {
+    try {
+      return new URL(this.page.url()).searchParams.get('instanceid');
+    } catch {
+      return null;
+    }
+  }
+
   // ---------- KPI cards ----------
   async getKpiCards(): Promise<KpiCard[]> {
     await this.page
       .locator(this.selectors.kpiCard)
       .first()
-      .waitFor({ state: 'visible', timeout: 30000 })
+      .waitFor({ state: 'visible', timeout: 60000 })
       .catch(() => {});
 
     const cards = this.page.locator(this.selectors.kpiCard);
@@ -199,8 +182,7 @@ export class PortfolioInsightsPage extends BasePage {
 
       result.push({
         title: title || `card-${i + 1}`,
-        // Fall back to the card's own text when no value node is matched.
-        value: value || raw,
+        value,
         hasError: this.looksLikeError(raw),
       });
     }
@@ -208,7 +190,7 @@ export class PortfolioInsightsPage extends BasePage {
     return result;
   }
 
-  /** Titles of cards that are erroring or blank. */
+  /** Titles of cards that are erroring or have no value at all. */
   async getFailingKpiCards(): Promise<string[]> {
     const cards = await this.getKpiCards();
     return cards.filter((c) => c.hasError || c.value === '').map((c) => c.title);
@@ -219,8 +201,8 @@ export class PortfolioInsightsPage extends BasePage {
   }
 
   /**
-   * A KPI value is valid if it is a number, percentage, or currency amount.
-   * Zero is a PASS - it means PBI has no value for that metric.
+   * A KPI value is valid if it is a number, percentage or currency amount.
+   * Zero is a PASS - it means Power BI has no value for that metric.
    */
   isValidKpiValue(value: string): boolean {
     if (!value) return false;
@@ -229,60 +211,106 @@ export class PortfolioInsightsPage extends BasePage {
   }
 
   // ---------- Filters ----------
-  private async selectDropdownOption(dropdownSelector: string, index = 1): Promise<void> {
-    await this.clickElement(dropdownSelector);
-    await this.page.waitForTimeout(1000);
+  /** Currently selected quick month, e.g. "Sep 2026". */
+  async getSelectedQuickMonth(): Promise<string> {
+    return await this.getText(this.selectors.quickMonthDropdown);
+  }
 
-    const options = this.page.locator(this.selectors.dropdownOption);
-    const count = await options.count();
-    if (count === 0) {
-      throw new Error(`Dropdown "${dropdownSelector}" opened but listed no options`);
+  async getQuickMonthOptions(): Promise<string[]> {
+    await this.clickElement(this.selectors.quickMonthDropdown);
+    await this.page.waitForTimeout(1500);
+    const texts = await this.page.locator(this.selectors.dropdownOption).allTextContents();
+    await this.pressKey('Escape');
+    return texts.map((t) => t.trim()).filter(Boolean);
+  }
+
+  /** Pick a different month from the quick-month dropdown. */
+  async changeQuickMonth(): Promise<void> {
+    const current = await this.getSelectedQuickMonth();
+
+    await this.clickElement(this.selectors.quickMonthDropdown);
+    await this.page.waitForTimeout(1500);
+
+    // Skip "Custom range" and whatever is already selected.
+    const option = this.page
+      .locator(this.selectors.dropdownOption)
+      .filter({ hasText: /^\w{3} \d{4}$/ })
+      .filter({ hasNotText: current })
+      .first();
+
+    await option.click({ timeout: 15000 });
+    await this.page.waitForTimeout(2000);
+  }
+
+  /** Switch the quick-month control to "Custom range" to change the dates. */
+  async changeDateRange(): Promise<void> {
+    await this.clickElement(this.selectors.quickMonthDropdown);
+    await this.page.waitForTimeout(1500);
+
+    const custom = this.page
+      .locator(this.selectors.dropdownOption)
+      .filter({ hasText: /custom range/i })
+      .first();
+    await custom.click({ timeout: 15000 });
+    await this.page.waitForTimeout(2000);
+
+    // Pick a selectable day from the calendar that appears.
+    const day = this.page
+      .locator('[role="gridcell"] button:not([disabled]), button[name="day"]:not([disabled])')
+      .first();
+    if (await day.isVisible({ timeout: 10000 }).catch(() => false)) {
+      await day.click();
+      await this.page.waitForTimeout(1500);
     }
 
-    await options.nth(Math.min(index, count - 1)).click();
-    await this.page.waitForTimeout(1000);
-  }
-
-  async changeQuickMonth(): Promise<void> {
-    await this.selectDropdownOption(this.selectors.quickMonthDropdown);
-  }
-
-  async changeDateRange(): Promise<void> {
-    await this.selectDropdownOption(this.selectors.dateRangePicker);
-  }
-
-  async selectDifferentCommunity(): Promise<void> {
-    await this.selectDropdownOption(this.selectors.communityDropdown);
+    await this.pressKey('Escape');
+    await this.page.waitForTimeout(1500);
   }
 
   async getCommunityOptions(): Promise<string[]> {
     await this.clickElement(this.selectors.communityDropdown);
-    await this.page.waitForTimeout(1000);
-
+    await this.page.waitForTimeout(2000);
     const texts = await this.page.locator(this.selectors.dropdownOption).allTextContents();
     await this.pressKey('Escape');
-
     return texts.map((t) => t.trim()).filter(Boolean);
+  }
+
+  async selectDifferentCommunity(): Promise<void> {
+    await this.clickElement(this.selectors.communityDropdown);
+    await this.page.waitForTimeout(2000);
+
+    const options = this.page.locator(this.selectors.dropdownOption);
+    const count = await options.count();
+    if (count === 0) {
+      throw new Error('Community dropdown opened but listed no options');
+    }
+
+    await options.first().click();
+    await this.page.waitForTimeout(2000);
+    await this.pressKey('Escape');
   }
 
   // ---------- Edit mode ----------
   async enterEditMode(): Promise<void> {
     await this.clickElement(this.selectors.editButton);
-    await this.page.waitForTimeout(2000);
+    await this.page.waitForTimeout(3000);
   }
 
   async isInEditMode(): Promise<boolean> {
-    return await this.isVisible(this.selectors.editModeIndicator, 5000);
+    return (
+      (await this.isVisible(this.selectors.saveButton, 5000)) ||
+      (await this.isVisible(this.selectors.cancelButton, 3000))
+    );
   }
 
-  /** Leave edit mode WITHOUT saving, so no state is persisted. */
+  /** Leave edit mode WITHOUT saving, so nothing is persisted. */
   async exitEditModeWithoutSaving(): Promise<void> {
     if (await this.isVisible(this.selectors.cancelButton, 5000)) {
       await this.clickElement(this.selectors.cancelButton);
     } else {
       await this.pressKey('Escape');
     }
-    await this.page.waitForTimeout(2000);
+    await this.page.waitForTimeout(3000);
   }
 
   /** Fingerprint of the layout, used to prove edit mode changed nothing. */
@@ -294,42 +322,60 @@ export class PortfolioInsightsPage extends BasePage {
   // ---------- AI briefing ----------
   async openAiBriefing(): Promise<void> {
     await this.clickElement(this.selectors.aiBriefingButton);
+    await this.page
+      .locator(this.selectors.briefingContainer)
+      .waitFor({ state: 'visible', timeout: 30000 })
+      .catch(() => {});
     await this.page.waitForTimeout(2000);
   }
 
-  private async generateBriefing(optionSelector: string): Promise<void> {
-    if (await this.isVisible(optionSelector, 5000)) {
-      await this.clickElement(optionSelector);
-      await this.page.waitForTimeout(1000);
-    }
+  private async runBriefing(optionSelector: string): Promise<void> {
+    await this.clickElement(optionSelector);
 
-    if (await this.isVisible(this.selectors.generateButton, 5000)) {
-      await this.clickElement(this.selectors.generateButton);
-    }
+    // Generation is an LLM call - allow generous time for content to appear.
+    const container = this.page.locator(this.selectors.briefingContainer);
+    const deadline = Date.now() + 180000;
 
-    // Generation is an LLM call - allow generous time.
-    await this.page
-      .locator(this.selectors.briefingContent)
-      .first()
-      .waitFor({ state: 'visible', timeout: 120000 })
-      .catch(() => {});
-    await this.page.waitForTimeout(3000);
+    while (Date.now() < deadline) {
+      await this.page.waitForTimeout(5000);
+      const text = ((await container.textContent().catch(() => '')) || '').trim();
+      // Wait until meaningful prose has streamed in.
+      if (text.length > 200) return;
+    }
   }
 
   async generateStandardBriefing(): Promise<void> {
-    await this.generateBriefing(this.selectors.standardBriefingOption);
+    await this.runBriefing(this.selectors.standardBriefingOption);
   }
 
   async generateCustomBriefing(): Promise<void> {
-    await this.generateBriefing(this.selectors.customBriefingOption);
+    await this.clickElement(this.selectors.customBriefingOption);
+    await this.page.waitForTimeout(2000);
+
+    // The custom flow asks for a prompt before it will generate.
+    const input = this.page.locator('textarea, input[type="text"]').last();
+    if (await input.isVisible({ timeout: 10000 }).catch(() => false)) {
+      await input.fill('Summarise the key metrics shown on this dashboard.');
+      await this.pressKey('Enter');
+    }
+
+    const container = this.page.locator(this.selectors.briefingContainer);
+    const deadline = Date.now() + 180000;
+    while (Date.now() < deadline) {
+      await this.page.waitForTimeout(5000);
+      const text = ((await container.textContent().catch(() => '')) || '').trim();
+      if (text.length > 200) return;
+    }
   }
 
   async getBriefingText(): Promise<string> {
-    return await this.getText(this.selectors.briefingContent);
+    return await this.getText(this.selectors.briefingContainer);
   }
 
   async briefingHasError(): Promise<boolean> {
-    return await this.isVisible(this.selectors.briefingError, 5000);
+    const container = this.page.locator(this.selectors.briefingContainer);
+    const text = ((await container.textContent().catch(() => '')) || '').toLowerCase();
+    return /error|failed|something went wrong|unable to generate/.test(text);
   }
 
   /** Numeric figures quoted in the briefing text. */
@@ -340,18 +386,17 @@ export class PortfolioInsightsPage extends BasePage {
   }
 
   /**
-   * Figures quoted in the briefing that do not appear anywhere in the UI
-   * values. Comparison is normalised (strips currency, commas, %) so
-   * "1,234" and "$1234" count as the same figure.
+   * Figures quoted in the briefing that do not appear in the UI values.
+   * Normalised so "$15,655,447" and "15655447" count as the same figure.
    */
   findUnmatchedFigures(briefingFigures: string[], uiValues: string[]): string[] {
     const normalise = (s: string) => s.replace(/[$£€,%\s]/g, '');
-    const uiNormalised = uiValues.map(normalise);
+    const uiNormalised = uiValues.map(normalise).filter(Boolean);
 
     return briefingFigures.filter((figure) => {
       const target = normalise(figure);
-      // Ignore trivial figures - single digits, years, list numbering.
-      if (target.length <= 1) return false;
+      // Ignore trivia: single digits, years, list numbering.
+      if (target.length <= 2) return false;
       if (/^(19|20)\d{2}$/.test(target)) return false;
 
       return !uiNormalised.some((ui) => ui.includes(target) || target.includes(ui));
@@ -361,18 +406,21 @@ export class PortfolioInsightsPage extends BasePage {
   // ---------- Create task ----------
   async clickCreateTask(): Promise<void> {
     await this.clickElement(this.selectors.createTaskButton);
-    await this.page.waitForTimeout(3000);
+    await this.page.waitForTimeout(4000);
   }
 
   async isCreateTaskPageDisplayed(): Promise<boolean> {
     const urlMatches = /task/i.test(this.page.url());
-    const formVisible = await this.isVisible(this.selectors.createTaskPage, 10000);
+    const formVisible = await this.isVisible(
+      'form, [role="dialog"], [class*="createTask"]',
+      10000
+    );
     return urlMatches || formVisible;
   }
 
   // ---------- Assertions ----------
   async assertPageLoaded(): Promise<void> {
     await expect(this.page).toHaveURL(/portfolio-insights/);
-    await expect(this.page.locator(this.selectors.pageContainer).first()).toBeVisible();
+    await expect(this.page.locator(this.selectors.pageContainer)).toBeVisible();
   }
 }

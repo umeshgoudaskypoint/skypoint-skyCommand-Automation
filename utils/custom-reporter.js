@@ -1,8 +1,10 @@
 import fs from 'fs';
 import path from 'path';
+import { spawnSync } from 'child_process';
 
 /**
- * Custom reporter: run summary, failure analysis and healing hints.
+ * Custom reporter: run summary, failure analysis, healing hints, and the
+ * post-run results email sent through Outlook.
  */
 export default class CustomReporter {
   constructor() {
@@ -68,6 +70,8 @@ export default class CustomReporter {
         {
           generatedAt: new Date().toISOString(),
           baseUrl: process.env.BASE_URL || null,
+          // 'interrupted' means the run was stopped part-way (e.g. Ctrl+C).
+          interrupted: result.status === 'interrupted',
           summary: { total, passed, failed, skipped, flaky, passRate, duration },
           results: this.results,
         },
@@ -82,6 +86,45 @@ export default class CustomReporter {
     );
 
     console.log('\n  HTML report: npm run report\n');
+
+    this.sendResultsEmail();
+  }
+
+  /**
+   * Email the summary through the Outlook desktop app.
+   *
+   * Runs synchronously so it completes before Playwright exits, and never
+   * throws - a mail problem must not change the outcome of a test run.
+   * Disable with NOTIFY_EMAIL=false.
+   */
+  sendResultsEmail() {
+    if (process.env.NOTIFY_EMAIL === 'false') {
+      console.log('  Email notification disabled (NOTIFY_EMAIL=false).\n');
+      return;
+    }
+
+    const script = path.join(process.cwd(), 'scripts', 'send-report-email.ps1');
+    if (!fs.existsSync(script)) return;
+
+    const recipient = process.env.NOTIFY_EMAIL_TO || 'umeshgouda.hiregoudra@skypoint.ai';
+
+    try {
+      const proc = spawnSync(
+        'powershell.exe',
+        [
+          '-NoProfile',
+          '-ExecutionPolicy', 'Bypass',
+          '-File', script,
+          '-To', recipient,
+        ],
+        { encoding: 'utf-8', timeout: 90000 }
+      );
+
+      const output = `${proc.stdout || ''}${proc.stderr || ''}`.trim();
+      if (output) console.log(output);
+    } catch (err) {
+      console.log(`  Could not send the results email: ${err.message}`);
+    }
   }
 
   isSelectorError(message) {
