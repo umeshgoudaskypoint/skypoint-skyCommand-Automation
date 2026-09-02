@@ -149,19 +149,46 @@ if ($DryRun) {
     exit 0
 }
 
+# Send over SMTP.
+#
+# The new Outlook for Windows has no COM automation, so mail goes out over
+# SMTP instead. Credentials come from the environment - never hard-coded.
+#   SMTP_USER  sending address
+#   SMTP_PASS  app password (NOT your normal sign-in password)
+#   SMTP_HOST  defaults to smtp.office365.com
+#   SMTP_PORT  defaults to 587 (STARTTLS)
+
+$smtpUser = $env:SMTP_USER
+$smtpPass = $env:SMTP_PASS
+$smtpHost = if ($env:SMTP_HOST) { $env:SMTP_HOST } else { "smtp.office365.com" }
+$smtpPort = if ($env:SMTP_PORT) { [int]$env:SMTP_PORT } else { 587 }
+
+if (-not $smtpUser -or -not $smtpPass) {
+    Write-Host "  Email not sent - SMTP_USER / SMTP_PASS are not set in .env"
+    Write-Host "  Summary: $passed passed, $failed failed, $skipped skipped ($passRate%)"
+    Write-Host "  Preview the email with: npm run mail:preview"
+    exit 0
+}
+
 try {
-    $outlook = New-Object -ComObject Outlook.Application
-    $mail = $outlook.CreateItem(0)
-    $mail.To = $To
+    $mail = New-Object System.Net.Mail.MailMessage
+    $mail.From = New-Object System.Net.Mail.MailAddress($smtpUser, "skyCommand Automation")
+    $mail.To.Add($To)
     $mail.Subject = $subject
-    $mail.HTMLBody = $body
-    $mail.Send()
+    $mail.Body = $body
+    $mail.IsBodyHtml = $true
+
+    $smtp = New-Object System.Net.Mail.SmtpClient($smtpHost, $smtpPort)
+    $smtp.EnableSsl = $true
+    $smtp.Credentials = New-Object System.Net.NetworkCredential($smtpUser, $smtpPass)
+    $smtp.Send($mail)
 
     Write-Host "  Results email sent to $To"
     Write-Host "  Subject: $subject"
 }
 catch {
     Write-Host "  Could not send the email: $($_.Exception.Message)"
-    Write-Host "  (Outlook must be installed and signed in. The test results are unaffected.)"
+    Write-Host "  Summary: $passed passed, $failed failed, $skipped skipped ($passRate%)"
+    Write-Host "  (Test results are unaffected.)"
     exit 0
 }

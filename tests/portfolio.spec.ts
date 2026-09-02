@@ -56,6 +56,22 @@ test.describe('Portfolio - KPI Cards', () => {
     }
   });
 
+  // Test Case: TC-PI-005b
+  test('TC-PI-005b: non-KPI widgets render with content @regression', async ({
+    portfolioInsightsPage,
+  }) => {
+    await portfolioInsightsPage.goto();
+
+    // The Disclaimer block and Community Scorecard table have no headline
+    // value, so they are checked for content and absence of errors only.
+    const widgets = await portfolioInsightsPage.getNonKpiWidgets();
+
+    for (const widget of widgets) {
+      expect(widget.text.length, 'a non-KPI widget rendered empty').toBeGreaterThan(0);
+      expect(widget.hasError, `widget shows an error: ${widget.text.slice(0, 60)}`).toBe(false);
+    }
+  });
+
   // Test Case: TC-PI-006
   test('TC-PI-006: no KPI card shows error text @sanity @regression @negative', async ({
     portfolioInsightsPage,
@@ -182,6 +198,9 @@ test.describe('Portfolio - Edit Mode', () => {
 });
 
 test.describe('Portfolio - AI Briefing', () => {
+  // Briefings are LLM calls - they need far longer than a normal test.
+  test.setTimeout(420000);
+
   // Test Case: TC-PI-016
   test('TC-PI-016: standard AI briefing generates @sanity @regression', async ({
     portfolioInsightsPage,
@@ -245,6 +264,9 @@ test.describe('Portfolio - AI Briefing', () => {
 });
 
 test.describe('Portfolio - Create a Task', () => {
+  // Reaching the task button requires generating a briefing first.
+  test.setTimeout(420000);
+
   // Test Case: TC-PI-020
   test('TC-PI-020: create a task from the briefing opens the task page @sanity @regression', async ({
     portfolioInsightsPage,

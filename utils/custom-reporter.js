@@ -8,7 +8,10 @@ import { spawnSync } from 'child_process';
  */
 export default class CustomReporter {
   constructor() {
-    this.results = [];
+    // Keyed by test id so each test case is counted ONCE, no matter how many
+    // attempts it made. Counting raw attempts produced totals larger than the
+    // number of test cases (e.g. 23 passed + 3 failed out of 24).
+    this.byTest = new Map();
     this.startTime = Date.now();
   }
 
@@ -22,7 +25,9 @@ export default class CustomReporter {
   }
 
   onTestEnd(test, result) {
-    this.results.push({
+    // Later attempts overwrite earlier ones, so the map holds the final
+    // outcome of each test case.
+    this.byTest.set(test.id, {
       title: test.title,
       file: test.location ? path.basename(test.location.file) : 'unknown',
       status: result.status,
@@ -33,6 +38,8 @@ export default class CustomReporter {
   }
 
   async onEnd(result) {
+    this.results = [...this.byTest.values()];
+
     const passed = this.results.filter((r) => r.status === 'passed').length;
     const failed = this.results.filter((r) => r.status === 'failed').length;
     const skipped = this.results.filter((r) => r.status === 'skipped').length;
@@ -44,13 +51,21 @@ export default class CustomReporter {
     console.log('\n========================================');
     console.log('  Summary');
     console.log('========================================');
-    console.log(`  Passed:   ${passed}`);
-    console.log(`  Failed:   ${failed}`);
-    console.log(`  Skipped:  ${skipped}`);
-    console.log(`  Flaky:    ${flaky}`);
-    console.log(`  Pass rate: ${passRate}%`);
-    console.log(`  Duration:  ${duration}s`);
-    console.log(`  Status:    ${result.status}`);
+    console.log(`  Test cases:  ${this.totalTests ?? total}`);
+    console.log(`  Executed:    ${total}`);
+    console.log(`  Passed:      ${passed}`);
+    console.log(`  Failed:      ${failed}`);
+    console.log(`  Skipped:     ${skipped}`);
+    console.log(`  Pass rate:   ${passRate}%`);
+    console.log(`  Duration:    ${duration}s`);
+    console.log(`  Status:      ${result.status}`);
+
+    if (failed > 0) {
+      console.log('\n  Failed test cases:');
+      this.results
+        .filter((r) => r.status === 'failed')
+        .forEach((r) => console.log(`    - ${r.title.replace(/ @[\w@ ]+$/, '')}`));
+    }
 
     const healingCandidates = this.results
       .filter((r) => r.status === 'failed' && r.error && this.isSelectorError(r.error))
@@ -72,7 +87,7 @@ export default class CustomReporter {
           baseUrl: process.env.BASE_URL || null,
           // 'interrupted' means the run was stopped part-way (e.g. Ctrl+C).
           interrupted: result.status === 'interrupted',
-          summary: { total, passed, failed, skipped, flaky, passRate, duration },
+          summary: { testCases: this.totalTests ?? total, total, passed, failed, skipped, flaky, passRate, duration },
           results: this.results,
         },
         null,
@@ -117,7 +132,12 @@ export default class CustomReporter {
           '-File', script,
           '-To', recipient,
         ],
-        { encoding: 'utf-8', timeout: 90000 }
+        {
+          encoding: 'utf-8',
+          timeout: 90000,
+          // Pass SMTP credentials through from .env (loaded by playwright.config).
+          env: { ...process.env },
+        }
       );
 
       const output = `${proc.stdout || ''}${proc.stderr || ''}`.trim();

@@ -12,7 +12,9 @@ export default defineConfig({
   testDir: './tests',
   fullyParallel: true,
   forbidOnly: !!process.env.CI,
-  retries: process.env.CI ? 2 : 1,
+  // No retries: a failed test is reported as failed, once. Retrying inflated
+  // the totals (23 passed + 3 failed out of 24 tests) and hid real flakiness.
+  retries: 0,
   workers: process.env.CI ? 1 : undefined,
 
   reporter: [
@@ -20,11 +22,15 @@ export default defineConfig({
     ['json', { outputFile: 'reports/results.json' }],
     ['junit', { outputFile: 'reports/junit.xml' }],
     ['list'],
+    ['./utils/results-logger.js'],
     ['./utils/custom-reporter.js'],
   ],
 
-  timeout: 60000,
-  expect: { timeout: 10000 },
+  // The Portfolio dashboard pulls its data from Power BI and routinely takes
+  // 30s+ to render, so 60s per test was not survivable. AI briefing tests
+  // raise this further with test.setTimeout().
+  timeout: 180000,
+  expect: { timeout: 20000 },
 
   use: {
     baseURL: process.env.BASE_URL || 'https://qa-skycommand.skypoint.ai',

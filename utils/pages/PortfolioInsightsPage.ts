@@ -24,9 +24,16 @@ export class PortfolioInsightsPage extends BasePage {
     sidebar: '[data-testid="sidebar"]',
     loadingSpinner: '[class*="animate-pulse"], [class*="skeleton"], [role="progressbar"]',
 
-    // Widget grid + KPI cards
+    // Widget grid.
+    //
+    // Every widget is a .react-grid-item, but only some are KPI cards - the
+    // Portfolio dashboard also carries a Disclaimer text block and the
+    // Community Scorecard table. A KPI card is identified by its big value
+    // span; the others are checked for rendering only.
     dashboardGrid: '[data-testid="dashboard-grid"]',
-    kpiCard: '.react-grid-item',
+    widget: '.react-grid-item',
+    kpiCard: '.react-grid-item:has(span.font-extrabold)',
+    nonKpiWidget: '.react-grid-item:not(:has(span.font-extrabold))',
     kpiTitle: 'span.font-semibold',
     kpiValue: 'span.font-extrabold',
 
@@ -50,6 +57,8 @@ export class PortfolioInsightsPage extends BasePage {
     briefingContainer: '[data-testid="ai-briefing-container"]',
     standardBriefingOption: 'button:has-text("Standard Briefing")',
     customBriefingOption: 'button:has-text("Custom AI Analysis")',
+    // Selecting a briefing type only ARMS it - this button actually runs it.
+    generateButton: 'button:has-text("Generate Briefing")',
     briefingHistory: 'button:has-text("History")',
     createTaskButton: '[data-testid="button-briefing-create-task"]',
 
@@ -196,6 +205,29 @@ export class PortfolioInsightsPage extends BasePage {
     return cards.filter((c) => c.hasError || c.value === '').map((c) => c.title);
   }
 
+  /** Total widgets on the dashboard, KPI cards and everything else. */
+  async getWidgetCount(): Promise<number> {
+    return await this.getCount(this.selectors.widget);
+  }
+
+  /**
+   * Non-KPI widgets (the Disclaimer block, Community Scorecard table).
+   * These have no single headline value, so they are only checked for
+   * rendering with some content and no error.
+   */
+  async getNonKpiWidgets(): Promise<{ text: string; hasError: boolean }[]> {
+    const widgets = this.page.locator(this.selectors.nonKpiWidget);
+    const count = await widgets.count();
+    const result: { text: string; hasError: boolean }[] = [];
+
+    for (let i = 0; i < count; i++) {
+      const text = ((await widgets.nth(i).textContent()) || '').trim();
+      result.push({ text, hasError: this.looksLikeError(text) });
+    }
+
+    return result;
+  }
+
   private looksLikeError(text: string): boolean {
     return /error|failed|unable to load|something went wrong/i.test(text);
   }
@@ -329,43 +361,102 @@ export class PortfolioInsightsPage extends BasePage {
     await this.page.waitForTimeout(2000);
   }
 
-  private async runBriefing(optionSelector: string): Promise<void> {
-    await this.clickElement(optionSelector);
-
-    // Generation is an LLM call - allow generous time for content to appear.
+  /**
+   * Wait for a briefing to finish generating.
+   *
+   * The panel already contains the two option cards ("Standard Briefing...",
+   * "Custom AI Analysis...") before anything is generated, so simply waiting
+   * for "some text" returns instantly and the test races ahead of the LLM.
+   *
+   * Instead: remember the text before generating, wait for it to CHANGE, then
+   * wait for it to STOP GROWING - the response streams in, so a stable length
+   * across consecutive polls means generation has finished.
+   */
+  private async waitForBriefingToGenerate(baseline: string, timeout = 360000): Promise<void> {
     const container = this.page.locator(this.selectors.briefingContainer);
-    const deadline = Date.now() + 180000;
+    const deadline = Date.now() + timeout;
 
+    const readText = async () =>
+      ((await container.textContent().catch(() => '')) || '').trim();
+
+    // Phase 1: content must actually change from the pre-generation state.
+    let changed = false;
+    while (Date.now() < deadline && !changed) {
+      await this.page.waitForTimeout(3000);
+      const text = await readText();
+      if (text !== baseline && text.length > baseline.length + 100) {
+        changed = true;
+      }
+    }
+
+    if (!changed) {
+      throw new Error(
+        `Briefing did not generate within ${timeout / 1000}s - the panel content ` +
+          'never changed from its pre-generation state.'
+      );
+    }
+
+    // Phase 2: streaming has stopped once the length holds steady.
+    let previousLength = -1;
+    let stableCount = 0;
     while (Date.now() < deadline) {
-      await this.page.waitForTimeout(5000);
-      const text = ((await container.textContent().catch(() => '')) || '').trim();
-      // Wait until meaningful prose has streamed in.
-      if (text.length > 200) return;
+      await this.page.waitForTimeout(4000);
+      const length = (await readText()).length;
+
+      if (length === previousLength) {
+        stableCount++;
+        if (stableCount >= 3) return;
+      } else {
+        stableCount = 0;
+      }
+      previousLength = length;
     }
   }
 
+  /**
+   * Generate the standard briefing.
+   *
+   * Two clicks are required: selecting "Standard Briefing" only arms it and
+   * shows "Ready to generate an AI-powered briefing for this dashboard" - a
+   * separate "Generate Briefing" button actually starts the LLM call.
+   * Missing that second click meant the test waited for a briefing that had
+   * never been requested.
+   */
   async generateStandardBriefing(): Promise<void> {
-    await this.runBriefing(this.selectors.standardBriefingOption);
+    const container = this.page.locator(this.selectors.briefingContainer);
+
+    await this.clickElement(this.selectors.standardBriefingOption);
+    await this.page.waitForTimeout(2000);
+
+    // Baseline AFTER arming, so the "Ready to generate" prompt is not
+    // mistaken for generated content.
+    const baseline = ((await container.textContent().catch(() => '')) || '').trim();
+
+    await this.clickElement(this.selectors.generateButton);
+    await this.waitForBriefingToGenerate(baseline);
   }
 
   async generateCustomBriefing(): Promise<void> {
+    const container = this.page.locator(this.selectors.briefingContainer);
+
     await this.clickElement(this.selectors.customBriefingOption);
     await this.page.waitForTimeout(2000);
 
     // The custom flow asks for a prompt before it will generate.
     const input = this.page.locator('textarea, input[type="text"]').last();
-    if (await input.isVisible({ timeout: 10000 }).catch(() => false)) {
+    if (await input.isVisible({ timeout: 15000 }).catch(() => false)) {
       await input.fill('Summarise the key metrics shown on this dashboard.');
+    }
+
+    const baseline = ((await container.textContent().catch(() => '')) || '').trim();
+
+    if (await this.isVisible(this.selectors.generateButton, 10000)) {
+      await this.clickElement(this.selectors.generateButton);
+    } else {
       await this.pressKey('Enter');
     }
 
-    const container = this.page.locator(this.selectors.briefingContainer);
-    const deadline = Date.now() + 180000;
-    while (Date.now() < deadline) {
-      await this.page.waitForTimeout(5000);
-      const text = ((await container.textContent().catch(() => '')) || '').trim();
-      if (text.length > 200) return;
-    }
+    await this.waitForBriefingToGenerate(baseline);
   }
 
   async getBriefingText(): Promise<string> {
