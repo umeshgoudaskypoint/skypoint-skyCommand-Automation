@@ -79,9 +79,103 @@ export class LoginPage extends BasePage {
     await this.clickElement(this.selectors.signInButton);
   }
 
-  /** Login and wait for the app to load (happy path). */
+  /**
+   * Login via the Microsoft SSO provider (login.microsoftonline.com).
+   *
+   * Corporate @skypoint.ai accounts are federated to Entra ID and are NOT
+   * local B2C accounts, so they must use this path rather than
+   * email + password. Set AUTH_METHOD=microsoft in .env to select it.
+   */
+  async loginWithMicrosoft(email: string, password: string): Promise<void> {
+    await this.clickElement(this.selectors.microsoftButton);
+    await this.page.waitForURL(/login\.microsoftonline\.com/, { timeout: 45000 });
+
+    // Microsoft performs an "sso_reload" that clears any text already typed,
+    // so the email must be entered AFTER the page settles and then verified
+    // to have stuck before submitting.
+    const emailBox = this.page.locator('input[name="loginfmt"], input[type="email"]').first();
+
+    if (await emailBox.isVisible({ timeout: 20000 }).catch(() => false)) {
+      let entered = false;
+
+      for (let attempt = 1; attempt <= 3 && !entered; attempt++) {
+        await this.page.waitForLoadState('networkidle', { timeout: 20000 }).catch(() => {});
+        await this.page.waitForTimeout(2000);
+
+        await emailBox.click();
+        await emailBox.fill('');
+        await emailBox.fill(email);
+        await this.page.waitForTimeout(1000);
+
+        // Confirm the value survived any reload before clicking Next.
+        if ((await emailBox.inputValue().catch(() => '')) === email) {
+          entered = true;
+        }
+      }
+
+      if (!entered) {
+        throw new Error(
+          'Could not enter the email on the Microsoft sign-in page - the field ' +
+            'kept clearing itself (sso_reload).'
+        );
+      }
+
+      await this.page.locator('#idSIButton9, input[type="submit"]').first().click();
+    }
+
+    // Password step.
+    const passwordBox = this.page.locator('input[name="passwd"], input[type="password"]').first();
+    await passwordBox.waitFor({ state: 'visible', timeout: 30000 });
+    await this.page.waitForTimeout(1500);
+    await passwordBox.fill(password);
+    await this.page.waitForTimeout(500);
+    await this.page.locator('#idSIButton9, input[type="submit"]').first().click();
+
+    await this.handleMicrosoftPrompts();
+  }
+
+  /** Handle the prompts Microsoft shows after a password: MFA, "Stay signed in?". */
+  private async handleMicrosoftPrompts(): Promise<void> {
+    await this.page.waitForTimeout(5000);
+
+    // Credential rejection.
+    const msError = this.page.locator('#passwordError, .alert-error, [role="alert"]');
+    if (await msError.first().isVisible({ timeout: 3000 }).catch(() => false)) {
+      const text = (await msError.first().textContent()) || 'unknown error';
+      throw new Error(`Microsoft SSO rejected the sign-in: "${text.trim()}"`);
+    }
+
+    // MFA cannot be automated - fail with an actionable message.
+    const mfaIndicators = [
+      'text=/Approve sign in request/i',
+      'text=/Enter code/i',
+      'text=/verification code/i',
+      'text=/Verify your identity/i',
+    ];
+    for (const indicator of mfaIndicators) {
+      if (await this.page.locator(indicator).first().isVisible({ timeout: 2000 }).catch(() => false)) {
+        throw new Error(
+          'Microsoft SSO is requesting multi-factor authentication, which cannot ' +
+            'be automated. Ask IT to exempt the automation account from MFA on ' +
+            'trusted/CI IPs, or use a dedicated local B2C test account.'
+        );
+      }
+    }
+
+    // "Stay signed in?" - answering Yes keeps the session cookie.
+    const staySignedIn = this.page.locator('#idSIButton9, input[type="submit"][value="Yes"]');
+    if (await staySignedIn.first().isVisible({ timeout: 5000 }).catch(() => false)) {
+      await staySignedIn.first().click();
+    }
+  }
+
+  /** Login and wait for the app to load, using the configured auth method. */
   async loginAndWaitForApp(email: string, password: string): Promise<void> {
-    await this.login(email, password);
+    if ((process.env.AUTH_METHOD || 'local').toLowerCase() === 'microsoft') {
+      await this.loginWithMicrosoft(email, password);
+    } else {
+      await this.login(email, password);
+    }
     await this.waitForSuccessfulLogin();
   }
 

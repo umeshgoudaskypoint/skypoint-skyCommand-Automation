@@ -32,7 +32,9 @@
     "report:open": "playwright show-report reports/html",
     "codegen": "playwright codegen https://qa-skycommand.skypoint.ai",
     "install:browsers": "playwright install chromium",
-    "clean": "rimraf reports/* && rimraf test-results/*"
+    "clean": "rimraf reports/* && rimraf test-results/*",
+    "auth:save": "node scripts/save-auth.mjs",
+    "auth:clear": "rimraf playwright/.auth"
   },
   "dependencies": {
     "@playwright/test": "^1.49.0",
@@ -48,7 +50,15 @@
     "rimraf": "^6.0.1",
     "typescript": "^5.7.2"
   },
-  "engines": { "node": ">=18.0.0" },
-  "keywords": ["playwright", "automation", "testing", "ai-powered", "self-healing"],
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "keywords": [
+    "playwright",
+    "automation",
+    "testing",
+    "ai-powered",
+    "self-healing"
+  ],
   "license": "MIT"
 }
