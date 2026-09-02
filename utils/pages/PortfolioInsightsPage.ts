@@ -74,11 +74,69 @@ export class PortfolioInsightsPage extends BasePage {
   }
 
   // ---------- Navigation & load ----------
+  /**
+   * Open the Portfolio page.
+   *
+   * Prefers navigating through the UI from the app root, so the tenant is
+   * whichever one the app selects for the signed-in user - no hard-coded
+   * instance id needed. Falls back to the direct URL when INSTANCE_ID is
+   * set explicitly in .env.
+   */
   async goto(): Promise<void> {
-    await this.page.goto(`/insights/portfolio-insights?instanceid=${this.instanceId}`, {
-      waitUntil: 'domcontentloaded',
-    });
+    if (process.env.INSTANCE_ID) {
+      await this.page.goto(`/insights/portfolio-insights?instanceid=${this.instanceId}`, {
+        waitUntil: 'domcontentloaded',
+      });
+      await this.waitForInsightsLoad();
+      return;
+    }
+
+    await this.gotoFromHome();
+  }
+
+  /** Navigate from the app root by clicking through the UI. */
+  async gotoFromHome(): Promise<void> {
+    await this.page.goto('/', { waitUntil: 'domcontentloaded' });
+    await this.waitForNetworkIdle();
+
+    // Make sure we are in the tenant under test before going anywhere.
+    const tenant = process.env.TENANT;
+    if (tenant) {
+      await this.switchToTenant(tenant);
+    }
+
+    // Already there? Some tenants land on Portfolio by default.
+    if (this.page.url().includes('portfolio-insights')) {
+      await this.waitForInsightsLoad();
+      return;
+    }
+
+    const insightsLink = this.page
+      .locator('a[href*="/insights"], [role="link"]:has-text("Insights")')
+      .first();
+    if (await insightsLink.isVisible({ timeout: 15000 }).catch(() => false)) {
+      await insightsLink.click();
+      await this.page.waitForTimeout(2000);
+    }
+
+    const portfolioLink = this.page
+      .locator('a[href*="portfolio"], :text("Portfolio Insights"), :text("Portfolio")')
+      .first();
+    if (await portfolioLink.isVisible({ timeout: 15000 }).catch(() => false)) {
+      await portfolioLink.click();
+    }
+
+    await this.page.waitForURL(/portfolio/, { timeout: 30000 }).catch(() => {});
     await this.waitForInsightsLoad();
+  }
+
+  /** The instance id currently in the address bar, whatever it is. */
+  getInstanceIdFromUrl(): string | null {
+    try {
+      return new URL(this.page.url()).searchParams.get('instanceid');
+    } catch {
+      return null;
+    }
   }
 
   async waitForInsightsLoad(timeout = 60000): Promise<void> {

@@ -222,6 +222,89 @@ export class BasePage {
     return this.page.frameLocator(selector);
   }
 
+  // ---------- Tenant switching ----------
+  /**
+   * The tenant switcher lives in the user menu (the username in the app
+   * header), so every page object inherits the ability to switch tenant.
+   */
+  protected readonly tenantSelectors = {
+    userMenu:
+      '[data-testid*="user-menu"], [class*="userMenu"], [class*="user-menu"], ' +
+      '[class*="avatar"], [aria-label*="account" i], [aria-label*="profile" i]',
+    tenantDropdown:
+      '[data-testid*="tenant"], [class*="tenantSelect"], [class*="tenant-select"], ' +
+      '[aria-label*="tenant" i], [class*="instanceSelect"]',
+    tenantOption: '[role="option"], [role="menuitem"], [class*="option"], li',
+  };
+
+  /** Open the user menu in the app header. */
+  async openUserMenu(): Promise<void> {
+    await this.clickElement(this.tenantSelectors.userMenu);
+    await this.page.waitForTimeout(1500);
+  }
+
+  /** Tenant names currently offered in the switcher. */
+  async getAvailableTenants(): Promise<string[]> {
+    await this.openUserMenu();
+
+    if (await this.isVisible(this.tenantSelectors.tenantDropdown, 5000)) {
+      await this.clickElement(this.tenantSelectors.tenantDropdown);
+      await this.page.waitForTimeout(1000);
+    }
+
+    const options = await this.page
+      .locator(this.tenantSelectors.tenantOption)
+      .allTextContents();
+
+    await this.pressKey('Escape');
+    return options.map((t) => t.trim()).filter(Boolean);
+  }
+
+  /**
+   * Switch to a named tenant via the user menu. No-op when that tenant is
+   * already active. Matching is case-insensitive and partial, so "westmont"
+   * also matches "Westmont Living".
+   */
+  async switchToTenant(tenantName: string): Promise<void> {
+    if (await this.isTenantActive(tenantName)) return;
+
+    await this.openUserMenu();
+
+    if (await this.isVisible(this.tenantSelectors.tenantDropdown, 5000)) {
+      await this.clickElement(this.tenantSelectors.tenantDropdown);
+      await this.page.waitForTimeout(1000);
+    }
+
+    const option = this.page
+      .locator(this.tenantSelectors.tenantOption)
+      .filter({ hasText: new RegExp(tenantName, 'i') })
+      .first();
+
+    if (!(await option.isVisible({ timeout: 10000 }).catch(() => false))) {
+      const available = await this.page
+        .locator(this.tenantSelectors.tenantOption)
+        .allTextContents();
+      throw new Error(
+        `Tenant "${tenantName}" not found in the switcher. Available: ` +
+          (available.map((t) => t.trim()).filter(Boolean).join(', ') || '(none)')
+      );
+    }
+
+    await option.click();
+    await this.page.waitForTimeout(3000);
+    await this.waitForNetworkIdle();
+  }
+
+  /** Is the named tenant the one currently shown in the header? */
+  async isTenantActive(tenantName: string): Promise<boolean> {
+    const header = await this.page
+      .locator('header, [class*="header"], [class*="topBar"]')
+      .first()
+      .textContent()
+      .catch(() => '');
+    return new RegExp(tenantName, 'i').test(header || '');
+  }
+
   // ---------- Storage ----------
   async clearSession(): Promise<void> {
     await this.page.context().clearCookies();
