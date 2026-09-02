@@ -1,7 +1,12 @@
 import { defineConfig, devices } from '@playwright/test';
 import dotenv from 'dotenv';
+import fs from 'fs';
 
 dotenv.config();
+
+// Only reuse a cached session if global-setup actually managed to create one.
+const AUTH_FILE = 'playwright/.auth/user.json';
+const hasCachedAuth = fs.existsSync(AUTH_FILE);
 
 export default defineConfig({
   testDir: './tests',
@@ -31,7 +36,8 @@ export default defineConfig({
     navigationTimeout: 30000,
     ignoreHTTPSErrors: true,
     viewport: { width: 1920, height: 1080 },
-    storageState: process.env.SKIP_AUTH === 'true' ? undefined : 'playwright/.auth/user.json',
+    storageState:
+      process.env.SKIP_AUTH === 'true' || !hasCachedAuth ? undefined : AUTH_FILE,
   },
 
   outputDir: 'test-results/',

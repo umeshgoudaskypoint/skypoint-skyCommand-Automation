@@ -80,10 +80,22 @@ async function globalSetup(config: FullConfig): Promise<void> {
       path: 'reports/screenshots/auth-failure.png',
       fullPage: true,
     });
-    console.error('\n  Authentication FAILED.');
-    console.error(`  Final URL: ${page.url()}`);
-    console.error('  Screenshot: reports/screenshots/auth-failure.png\n');
-    throw error;
+    const detail = error instanceof Error ? error.message : String(error);
+    console.error('\n  ----------------------------------------');
+    console.error('  AUTHENTICATION FAILED');
+    console.error('  ----------------------------------------');
+    console.error(`  ${detail.split('\n')[0]}`);
+    console.error('  Screenshot: reports/screenshots/auth-failure.png');
+
+    // STRICT_AUTH=true turns a broken login into a hard failure (use in CI).
+    if (process.env.STRICT_AUTH === 'true') {
+      console.error('\n  STRICT_AUTH=true - aborting the run.\n');
+      throw error;
+    }
+
+    console.error('\n  Continuing WITHOUT a cached session.');
+    console.error('  Logged-out tests still run; tests needing a signed-in');
+    console.error('  user will fail. Set STRICT_AUTH=true to abort instead.\n');
   } finally {
     await context.close();
     await browser.close();
