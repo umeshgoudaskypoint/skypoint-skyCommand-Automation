@@ -1,5 +1,5 @@
 import { test as base, Page } from '@playwright/test';
-import { LoginPage, PortfolioInsightsPage } from './pages';
+import { LoginPage, PortfolioInsightsPage, CommunitySummaryPage } from './pages';
 
 export type TestData = {
   runId: string;
@@ -10,6 +10,7 @@ export type TestData = {
 type CustomFixtures = {
   loginPage: LoginPage;
   portfolioInsightsPage: PortfolioInsightsPage;
+  communitySummaryPage: CommunitySummaryPage;
   authenticatedPage: Page;
   testData: TestData;
 };
@@ -21,6 +22,10 @@ export const test = base.extend<CustomFixtures>({
 
   portfolioInsightsPage: async ({ page }, use) => {
     await use(new PortfolioInsightsPage(page));
+  },
+
+  communitySummaryPage: async ({ page }, use) => {
+    await use(new CommunitySummaryPage(page));
   },
 
   /**

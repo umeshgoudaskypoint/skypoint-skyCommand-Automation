@@ -1,33 +1,47 @@
-import { chromium, FullConfig } from '@playwright/test';
+import { FullConfig } from '@playwright/test';
 import fs from 'fs';
 import path from 'path';
 import dotenv from 'dotenv';
-import { LoginPage } from './pages/LoginPage';
 
 dotenv.config();
 
 const AUTH_DIR = path.join(process.cwd(), 'playwright', '.auth');
 const AUTH_FILE = path.join(AUTH_DIR, 'user.json');
 
-/** Is the cached storage state still usable (cookies not expired)? */
+/**
+ * Is there a usable cached session? This app (Azure AD B2C/MSAL) keeps its
+ * real session in localStorage, not cookies, so a cookie-expiry check is
+ * the wrong signal and was flagging a perfectly good session as invalid on
+ * every run - triggering the automated-login fallback below on every
+ * single test run, which then always failed after its 90s timeout (see
+ * "Automated login DOES NOT WORK" in CLAUDE.md) despite the cached session
+ * already working fine for the actual tests via playwright.config's
+ * storageState. Just checking that the file has SOME saved state is a much
+ * more honest signal than guessing at expiry: if the session actually did
+ * expire, the tests themselves will fail with a clear signed-out symptom,
+ * which is the real signal to re-run `npm run auth:save`.
+ */
 function isCachedAuthValid(): boolean {
   if (!fs.existsSync(AUTH_FILE)) return false;
 
   try {
     const state = JSON.parse(fs.readFileSync(AUTH_FILE, 'utf-8'));
-    if (!state.cookies || state.cookies.length === 0) return false;
-
-    const nowSeconds = Date.now() / 1000;
-    // Session cookies use expires === -1; treat those as valid.
-    const expired = state.cookies.some(
-      (c: { expires: number }) => c.expires > 0 && c.expires < nowSeconds + 300
-    );
-    return !expired;
+    const hasCookies = Array.isArray(state.cookies) && state.cookies.length > 0;
+    const hasLocalStorage = Array.isArray(state.origins) && state.origins.length > 0;
+    return hasCookies || hasLocalStorage;
   } catch {
     return false;
   }
 }
 
+/**
+ * Authenticating skyCommand automatically does not work - see
+ * "AUTHENTICATION - READ THIS BEFORE TOUCHING LOGIN" in CLAUDE.md. There is
+ * no automated fallback here on purpose: attempting one always fails after
+ * a long timeout with zero chance of success, which just wastes time on
+ * every run. The only real recovery step when the cached session actually
+ * expires is a human running `npm run auth:save`.
+ */
 async function globalSetup(config: FullConfig): Promise<void> {
   console.log('\n========================================');
   console.log('  SkyCommand Automation - Global Setup');
@@ -41,65 +55,24 @@ async function globalSetup(config: FullConfig): Promise<void> {
   fs.mkdirSync(AUTH_DIR, { recursive: true });
 
   if (isCachedAuthValid()) {
-    console.log('  Reusing cached authentication state.\n');
+    console.log('  Reusing cached authentication state (playwright/.auth/user.json).\n');
     return;
   }
 
-  const email = process.env.TEST_USER_EMAIL;
-  const password = process.env.TEST_USER_PASSWORD;
-  const baseURL = process.env.BASE_URL || 'https://qa-skycommand.skypoint.ai';
+  console.error('  ----------------------------------------');
+  console.error('  NO CACHED SESSION FOUND');
+  console.error('  ----------------------------------------');
+  console.error('  Run `npm run auth:save` to sign in once by hand - a human');
+  console.error('  has to complete Microsoft SSO + MFA, this cannot be automated.');
 
-  if (!email || !password) {
-    throw new Error(
-      '\n  Missing credentials.\n' +
-        '  Set TEST_USER_EMAIL and TEST_USER_PASSWORD in automation/.env\n' +
-        '  (copy .env.example to .env and fill them in), or run with SKIP_AUTH=true.\n'
-    );
+  if (process.env.STRICT_AUTH === 'true') {
+    console.error('\n  STRICT_AUTH=true - aborting the run.\n');
+    throw new Error('No cached session found. Run `npm run auth:save` first.');
   }
 
-  console.log(`  Authenticating ${email} against ${baseURL} ...`);
-
-  const browser = await chromium.launch({ headless: process.env.HEADLESS !== 'false' });
-  const context = await browser.newContext({
-    baseURL,
-    ignoreHTTPSErrors: true,
-    viewport: { width: 1920, height: 1080 },
-  });
-  const page = await context.newPage();
-
-  try {
-    const loginPage = new LoginPage(page);
-    await loginPage.goto();
-    await loginPage.loginAndWaitForApp(email, password);
-
-    await context.storageState({ path: AUTH_FILE });
-    console.log('  Authentication succeeded. State cached.\n');
-  } catch (error) {
-    fs.mkdirSync(path.join(process.cwd(), 'reports', 'screenshots'), { recursive: true });
-    await page.screenshot({
-      path: 'reports/screenshots/auth-failure.png',
-      fullPage: true,
-    });
-    const detail = error instanceof Error ? error.message : String(error);
-    console.error('\n  ----------------------------------------');
-    console.error('  AUTHENTICATION FAILED');
-    console.error('  ----------------------------------------');
-    console.error(`  ${detail.split('\n')[0]}`);
-    console.error('  Screenshot: reports/screenshots/auth-failure.png');
-
-    // STRICT_AUTH=true turns a broken login into a hard failure (use in CI).
-    if (process.env.STRICT_AUTH === 'true') {
-      console.error('\n  STRICT_AUTH=true - aborting the run.\n');
-      throw error;
-    }
-
-    console.error('\n  Continuing WITHOUT a cached session.');
-    console.error('  Logged-out tests still run; tests needing a signed-in');
-    console.error('  user will fail. Set STRICT_AUTH=true to abort instead.\n');
-  } finally {
-    await context.close();
-    await browser.close();
-  }
+  console.error('\n  Continuing WITHOUT a session.');
+  console.error('  Logged-out tests still run; tests needing a signed-in');
+  console.error('  user will fail. Set STRICT_AUTH=true to abort instead.\n');
 }
 
 export default globalSetup;
