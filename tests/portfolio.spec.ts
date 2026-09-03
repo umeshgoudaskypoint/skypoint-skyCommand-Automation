@@ -220,9 +220,9 @@ test.describe('Portfolio - AI Briefing', () => {
   }) => {
     await portfolioInsightsPage.goto();
 
-    // Record what the UI shows BEFORE generating the briefing.
-    const cards = await portfolioInsightsPage.getKpiCards();
-    const uiValues = cards.map((c) => c.value);
+    // Record every figure on screen BEFORE generating the briefing - KPI
+    // cards, subtext, and the Community Scorecard table.
+    const onScreenFigures = await portfolioInsightsPage.getOnScreenFigures();
 
     await portfolioInsightsPage.openAiBriefing();
     await portfolioInsightsPage.generateStandardBriefing();
@@ -230,7 +230,7 @@ test.describe('Portfolio - AI Briefing', () => {
     const briefingFigures = await portfolioInsightsPage.getBriefingFigures();
     expect(briefingFigures.length, 'briefing quoted no figures').toBeGreaterThan(0);
 
-    const unmatched = portfolioInsightsPage.findUnmatchedFigures(briefingFigures, uiValues);
+    const unmatched = portfolioInsightsPage.findUnmatchedFigures(briefingFigures, onScreenFigures);
     expect(
       unmatched,
       `figures in the briefing that do not appear on screen: ${unmatched.join(', ')}`

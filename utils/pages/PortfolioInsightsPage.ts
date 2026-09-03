@@ -58,7 +58,11 @@ export class PortfolioInsightsPage extends BasePage {
     standardBriefingOption: 'button:has-text("Standard Briefing")',
     customBriefingOption: 'button:has-text("Custom AI Analysis")',
     // Selecting a briefing type only ARMS it - this button actually runs it.
+    // The custom flow's button is labelled "Generate Custom Briefing", which
+    // does NOT contain "Generate Briefing" as a substring (the word "Custom"
+    // splits it) - so it needs its own selector, not a shared one.
     generateButton: 'button:has-text("Generate Briefing")',
+    customGenerateButton: 'button:has-text("Generate Custom Briefing")',
     briefingHistory: 'button:has-text("History")',
     createTaskButton: '[data-testid="button-briefing-create-task"]',
 
@@ -450,7 +454,9 @@ export class PortfolioInsightsPage extends BasePage {
 
     const baseline = ((await container.textContent().catch(() => '')) || '').trim();
 
-    if (await this.isVisible(this.selectors.generateButton, 10000)) {
+    if (await this.isVisible(this.selectors.customGenerateButton, 10000)) {
+      await this.clickElement(this.selectors.customGenerateButton);
+    } else if (await this.isVisible(this.selectors.generateButton, 5000)) {
       await this.clickElement(this.selectors.generateButton);
     } else {
       await this.pressKey('Enter');
@@ -469,28 +475,169 @@ export class PortfolioInsightsPage extends BasePage {
     return /error|failed|something went wrong|unable to generate/.test(text);
   }
 
-  /** Numeric figures quoted in the briefing text. */
-  async getBriefingFigures(): Promise<string[]> {
-    const text = await this.getBriefingText();
-    const matches = text.match(/[$£€]?\d[\d,]*(\.\d+)?%?/g) || [];
-    return [...new Set(matches.map((m) => m.trim()))];
+  /**
+   * Every numeric figure visible anywhere on the current dashboard - KPI
+   * cards (including their subtext, e.g. "NOI: $16,521,794"), the
+   * Disclaimer, and every row of the Community Scorecard table. The
+   * standard briefing legitimately summarises per-community figures from
+   * the scorecard, not just the 7 KPI cards, so TC-PI-017 must check
+   * against all of it or it flags real on-screen data as "missing".
+   *
+   * Uses innerText (not textContent) so the browser's own rendered layout
+   * inserts line breaks between table cells/rows - textContent would
+   * concatenate adjacent cells with no separator (e.g. a row's Units and
+   * Leads columns run together into one bad number).
+   */
+  async getOnScreenFigures(): Promise<string[]> {
+    const text = await this.waitForDashboardTextToStabilize();
+    return this.extractFigures(text);
   }
 
   /**
-   * Figures quoted in the briefing that do not appear in the UI values.
-   * Normalised so "$15,655,447" and "15655447" count as the same figure.
+   * [data-testid="dashboard-grid"] resolves to TWO separate elements on this
+   * page, not a duplicate render of the same thing: one holds the 7 KPI
+   * cards + Disclaimer, the other holds the entire Community Scorecard
+   * table. Reading only .first() (confirmed via a throwaway probe script)
+   * silently drops the whole scorecard, so every match must be read and
+   * joined.
+   *
+   * The Community Scorecard also populates via its own async fetch, later
+   * than the KPI cards - waitForInsightsLoad() only waits for the first KPI
+   * card, so reading right after goto() can race ahead of it. Poll until
+   * the combined text stops growing (same approach used for the AI
+   * briefing panel in waitForBriefingToGenerate).
+   *
+   * innerText (not textContent) so the browser's own rendered layout
+   * inserts line breaks between table cells/rows - textContent would
+   * concatenate adjacent cells with no separator.
    */
-  findUnmatchedFigures(briefingFigures: string[], uiValues: string[]): string[] {
-    const normalise = (s: string) => s.replace(/[$£€,%\s]/g, '');
-    const uiNormalised = uiValues.map(normalise).filter(Boolean);
+  private async waitForDashboardTextToStabilize(timeout = 60000): Promise<string> {
+    const grids = this.page.locator(this.selectors.dashboardGrid);
+    const deadline = Date.now() + timeout;
+    let previous = '';
+    let stableCount = 0;
+
+    const readAll = async (): Promise<string> => {
+      const count = await grids.count();
+      const texts: string[] = [];
+      for (let i = 0; i < count; i++) {
+        texts.push(await grids.nth(i).innerText().catch(() => ''));
+      }
+      return texts.join('\n');
+    };
+
+    while (Date.now() < deadline) {
+      const current = await readAll();
+      if (current.length > 0 && current.length === previous.length) {
+        stableCount++;
+        if (stableCount >= 3) return current;
+      } else {
+        stableCount = 0;
+      }
+      previous = current;
+      await this.page.waitForTimeout(1000);
+    }
+    return previous;
+  }
+
+  /** Numeric figures quoted in the briefing text. */
+  async getBriefingFigures(): Promise<string[]> {
+    const text = await this.getBriefingText();
+    return this.extractFigures(text);
+  }
+
+  /** Numbers with an optional $/£/€ prefix, K/M/B magnitude suffix, or % suffix. */
+  private extractFigures(text: string): string[] {
+    const matches = text.match(/[$£€]?\d[\d,]*(?:\.\d+)?[KMBkmb]?%?/g) || [];
+    return [...new Set(matches.map((m) => m.trim()).filter(Boolean))];
+  }
+
+  private parseFigure(raw: string): { numeric: number; isPercent: boolean; digits: string } | null {
+    const isPercent = raw.trim().endsWith('%');
+    const cleaned = raw.replace(/[$£€,%\s]/g, '');
+    const suffix = cleaned.match(/([KMBkmb])$/);
+    const numStr = suffix ? cleaned.slice(0, -1) : cleaned;
+    const numeric = parseFloat(numStr);
+    if (Number.isNaN(numeric)) return null;
+
+    const multipliers = { k: 1e3, m: 1e6, b: 1e9 } as const;
+    const multiplier = suffix ? multipliers[suffix[1].toLowerCase() as 'k' | 'm' | 'b'] : 1;
+    return { numeric: numeric * multiplier, isPercent, digits: numStr.replace('.', '') };
+  }
+
+  /**
+   * Is this a simple derivation from two on-screen numbers - "total x
+   * rate%" or "total x (1 - rate%)" (e.g. "181 vacant units" computed from
+   * the on-screen "2,492 total units" and an on-screen vacancy/occupancy
+   * rate)? The briefing sometimes computes a count from an on-screen
+   * percentage rather than quoting a count that is itself on screen -
+   * treat that as an acceptable derivation, not a fabricated figure.
+   * Tolerance is generous (15%) because rendered percentages are rounded
+   * to 1-2 decimals while the underlying figure is not, so an exact
+   * product is not expected.
+   */
+  private isDerivedFromOnScreen(
+    target: number,
+    onScreen: { numeric: number; isPercent: boolean }[]
+  ): boolean {
+    const totals = onScreen.filter((u) => !u.isPercent && u.numeric > 1).map((u) => u.numeric);
+    const rates = onScreen.filter((u) => u.isPercent).map((u) => u.numeric / 100);
+
+    return totals.some((total) =>
+      rates.some((rate) =>
+        [total * rate, total * (1 - rate)].some((c) => Math.abs(c - target) / target <= 0.15)
+      )
+    );
+  }
+
+  /**
+   * Figures quoted in the briefing that do not appear anywhere on screen.
+   *
+   * Compares numerically, not by string containment - the previous
+   * substring check treated any UI value as a wildcard once normalised to
+   * 1-2 characters (e.g. the Net Movement card's "0" is a substring of
+   * almost every number), which silently passed figures that were never
+   * actually on screen.
+   *
+   * Percentages match within a small rounding tolerance, since the briefing
+   * sometimes quotes an extra decimal (e.g. "7.89%" for a UI value shown
+   * as "7.9%" - the same metric, more precision). Currency and counts match
+   * within a small relative tolerance, to allow for "$16.52M" vs
+   * "$16,521,794"-style magnitude rounding. Bare 1-2 digit whole numbers
+   * (list counts, ordinals - "5 communities", "1 community flagged") are
+   * not checked, since they are rarely a specific on-screen figure. Nor are
+   * whole-number percentages with no decimal ("below 90%", "sub-80%
+   * occupancy") - every percentage this dashboard ever renders carries a
+   * decimal (92.0%, 89.00%, ...), so a bare one is reliably threshold
+   * language in the prose, not a citation of a specific figure. A count
+   * that is a simple total x rate% derivation of two on-screen numbers is
+   * also allowed - see isDerivedFromOnScreen.
+   */
+  findUnmatchedFigures(briefingFigures: string[], onScreenFigures: string[]): string[] {
+    const onScreen = onScreenFigures
+      .map((f) => this.parseFigure(f))
+      .filter((p): p is NonNullable<typeof p> => p !== null);
 
     return briefingFigures.filter((figure) => {
-      const target = normalise(figure);
-      // Ignore trivia: single digits, years, list numbering.
-      if (target.length <= 2) return false;
-      if (/^(19|20)\d{2}$/.test(target)) return false;
+      const target = this.parseFigure(figure);
+      if (!target) return false;
 
-      return !uiNormalised.some((ui) => ui.includes(target) || target.includes(ui));
+      const isBareSmallInt = !figure.includes('%') && !figure.includes('.') && target.digits.length <= 2;
+      if (isBareSmallInt) return false;
+      if (target.isPercent && !figure.includes('.')) return false;
+      if (/^(19|20)\d{2}$/.test(target.digits) && !figure.includes('%')) return false;
+
+      const onScreenMatch = onScreen.some((ui) => {
+        if (target.isPercent !== ui.isPercent) return false;
+        if (target.isPercent) return Math.abs(target.numeric - ui.numeric) <= 0.05;
+        if (ui.numeric === 0) return target.numeric === 0;
+        return Math.abs(target.numeric - ui.numeric) / Math.abs(ui.numeric) <= 0.005;
+      });
+      if (onScreenMatch) return false;
+
+      if (!target.isPercent && this.isDerivedFromOnScreen(target.numeric, onScreen)) return false;
+
+      return true;
     });
   }
 
