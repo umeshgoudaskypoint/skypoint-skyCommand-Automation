@@ -81,7 +81,7 @@ Tenant under test: **Westmont**
 - Priority: High
 - Section: KPI Cards
 - Type: ui
-- Status: Not Automated
+- Status: Automated
 - Tags: sanity, regression
 - Precondition: User is on the Portfolio page
 - Steps:
@@ -90,7 +90,12 @@ Tenant under test: **Westmont**
   3. Verify at least one KPI card is displayed
   4. For each KPI card verify a value is present
   5. Verify no card shows an error or dash placeholder
-- Expected: Every KPI card shows a value. A value of 0 is acceptable
+  6. For any card reading 0, check the previous 3 months via the Quick
+     Month filter; if the card also reads 0 in every one of those months,
+     fail - a metric stuck at 0 for a month or more looks broken, not
+     legitimately empty. Restore the original month before finishing
+- Expected: Every KPI card shows a value. A single 0 is acceptable, but not
+  one that persists across the current period and the last 3 months
 
 ## TC-PI-006: KPI cards show no error text
 - Priority: High

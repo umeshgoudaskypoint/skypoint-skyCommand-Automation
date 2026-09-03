@@ -53,7 +53,7 @@ test.describe('Community Summary - Page Load', () => {
 
 test.describe('Community Summary - KPI Cards', () => {
   // Test Case: TC-CS-025
-  test('TC-CS-025: all KPI cards render with a value (0 is valid) @sanity @regression', async ({
+  test('TC-CS-025: all KPI cards render with a value (0 is valid unless stuck) @sanity @regression', async ({
     communitySummaryPage,
   }) => {
     await communitySummaryPage.goto();
@@ -69,6 +69,15 @@ test.describe('Community Summary - KPI Cards', () => {
         `KPI card "${card.title}" has a malformed value: "${card.value}"`
       ).toBe(true);
     }
+
+    // A single 0 is a legitimate PASS (PBI may have no value for this
+    // period) - but a metric stuck at 0 for this month AND the last 3
+    // months looks broken, not legitimately empty.
+    const stuck = await communitySummaryPage.findStuckZeroKpis();
+    expect(
+      stuck,
+      `KPI card(s) stuck at 0 across the last 3+ months: ${stuck.join(', ')}`
+    ).toHaveLength(0);
   });
 });
 

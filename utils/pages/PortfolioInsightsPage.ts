@@ -246,6 +246,53 @@ export class PortfolioInsightsPage extends BasePage {
     return /^[-+]?[$£€]?\d+(\.\d+)?[%KMB]?$/i.test(cleaned);
   }
 
+  private isZeroValue(value: string): boolean {
+    const cleaned = value.replace(/[$£€,%\s]/g, '');
+    const numeric = parseFloat(cleaned);
+    return !Number.isNaN(numeric) && numeric === 0;
+  }
+
+  /**
+   * KPI cards that read 0 THIS period AND stayed at 0 across the last
+   * `monthsToCheck` prior months too. A single 0 is a legitimate PASS (PBI
+   * may have no value for one period), but a metric stuck at 0 for a
+   * whole month or more looks broken, not legitimately empty - so this
+   * checks a few prior months and only flags a card if none of them show
+   * a non-zero value either. Restores the original month before returning
+   * (leave no trace).
+   */
+  async findStuckZeroKpis(monthsToCheck = 3): Promise<string[]> {
+    const originalMonth = await this.getSelectedQuickMonth();
+    const currentCards = await this.getKpiCards();
+    const zeroTitles = new Set(
+      currentCards.filter((c) => !c.hasError && this.isZeroValue(c.value)).map((c) => c.title)
+    );
+
+    if (zeroTitles.size === 0) return [];
+
+    const allMonths = await this.getQuickMonthList();
+    const currentIndex = allMonths.indexOf(originalMonth);
+    const priorMonths = (
+      currentIndex >= 0 ? allMonths.slice(currentIndex + 1) : allMonths
+    ).slice(0, monthsToCheck);
+
+    const recovered = new Set<string>();
+
+    for (const month of priorMonths) {
+      await this.selectQuickMonth(month);
+      const cards = await this.getKpiCards();
+      for (const card of cards) {
+        if (zeroTitles.has(card.title) && !card.hasError && !this.isZeroValue(card.value)) {
+          recovered.add(card.title);
+        }
+      }
+    }
+
+    await this.selectQuickMonth(originalMonth);
+
+    return [...zeroTitles].filter((title) => !recovered.has(title));
+  }
+
   // ---------- Filters ----------
   /** Currently selected quick month, e.g. "Sep 2026". */
   async getSelectedQuickMonth(): Promise<string> {
@@ -256,6 +303,18 @@ export class PortfolioInsightsPage extends BasePage {
     await this.clickElement(this.selectors.quickMonthDropdown);
     await this.page.waitForTimeout(1500);
     const texts = await this.page.locator(this.selectors.dropdownOption).allTextContents();
+    await this.pressKey('Escape');
+    return texts.map((t) => t.trim()).filter(Boolean);
+  }
+
+  /** Month options in on-screen order (newest first), excluding "Custom range". */
+  async getQuickMonthList(): Promise<string[]> {
+    await this.clickElement(this.selectors.quickMonthDropdown);
+    await this.page.waitForTimeout(1500);
+    const texts = await this.page
+      .locator(this.selectors.dropdownOption)
+      .filter({ hasText: /^\w{3} \d{4}$/ })
+      .allTextContents();
     await this.pressKey('Escape');
     return texts.map((t) => t.trim()).filter(Boolean);
   }
@@ -276,6 +335,17 @@ export class PortfolioInsightsPage extends BasePage {
 
     await option.click({ timeout: 15000 });
     await this.page.waitForTimeout(2000);
+  }
+
+  /** Select a specific month by its exact label, e.g. "Aug 2026". */
+  async selectQuickMonth(month: string): Promise<void> {
+    await this.clickElement(this.selectors.quickMonthDropdown);
+    await this.page.waitForTimeout(1500);
+
+    const option = this.page.locator(this.selectors.dropdownOption).filter({ hasText: month }).first();
+    await option.click({ timeout: 15000 });
+    await this.page.waitForTimeout(2000);
+    await this.waitForInsightsLoad();
   }
 
   /** Switch the quick-month control to "Custom range" to change the dates. */

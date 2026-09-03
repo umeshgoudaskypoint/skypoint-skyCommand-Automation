@@ -42,7 +42,7 @@ test.describe('Portfolio - Page Load', () => {
 
 test.describe('Portfolio - KPI Cards', () => {
   // Test Case: TC-PI-005
-  test('TC-PI-005: all KPI cards render with a value (0 is valid) @sanity @regression', async ({
+  test('TC-PI-005: all KPI cards render with a value (0 is valid unless stuck) @sanity @regression', async ({
     portfolioInsightsPage,
   }) => {
     await portfolioInsightsPage.goto();
@@ -54,6 +54,15 @@ test.describe('Portfolio - KPI Cards', () => {
       expect(card.value, `KPI card "${card.title}" has no value`).not.toBe('');
       expect(card.hasError, `KPI card "${card.title}" shows an error`).toBe(false);
     }
+
+    // A single 0 is a legitimate PASS (PBI may have no value for this
+    // period) - but a metric stuck at 0 for this month AND the last 3
+    // months looks broken, not legitimately empty.
+    const stuck = await portfolioInsightsPage.findStuckZeroKpis();
+    expect(
+      stuck,
+      `KPI card(s) stuck at 0 across the last 3+ months: ${stuck.join(', ')}`
+    ).toHaveLength(0);
   });
 
   // Test Case: TC-PI-005b
