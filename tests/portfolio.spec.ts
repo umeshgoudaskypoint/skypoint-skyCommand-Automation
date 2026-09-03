@@ -214,28 +214,14 @@ test.describe('Portfolio - AI Briefing', () => {
     expect(text.length, 'briefing is empty').toBeGreaterThan(0);
   });
 
-  // Test Case: TC-PI-017
-  test('TC-PI-017: standard briefing figures match the UI @sanity @regression', async ({
-    portfolioInsightsPage,
-  }) => {
-    await portfolioInsightsPage.goto();
-
-    // Record every figure on screen BEFORE generating the briefing - KPI
-    // cards, subtext, and the Community Scorecard table.
-    const onScreenFigures = await portfolioInsightsPage.getOnScreenFigures();
-
-    await portfolioInsightsPage.openAiBriefing();
-    await portfolioInsightsPage.generateStandardBriefing();
-
-    const briefingFigures = await portfolioInsightsPage.getBriefingFigures();
-    expect(briefingFigures.length, 'briefing quoted no figures').toBeGreaterThan(0);
-
-    const unmatched = portfolioInsightsPage.findUnmatchedFigures(briefingFigures, onScreenFigures);
-    expect(
-      unmatched,
-      `figures in the briefing that do not appear on screen: ${unmatched.join(', ')}`
-    ).toHaveLength(0);
-  });
+  // TC-PI-017 ("standard briefing figures match the UI") was removed: per
+  // QA decision, AI briefing tests check that a briefing GENERATES, not
+  // that its figures match on-screen data. Portfolio's briefing legitimately
+  // cites derived and per-community numbers (e.g. from the Community
+  // Scorecard, or simple arithmetic like "181 vacant units") that a DOM-only
+  // check can't reliably distinguish from a real content error, and other
+  // modules' briefings cite chart data points that never render as text at
+  // all - so this class of check does not generalise across modules.
 
   // Test Case: TC-PI-018
   test('TC-PI-018: custom AI briefing generates @sanity @regression', async ({

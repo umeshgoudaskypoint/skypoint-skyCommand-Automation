@@ -23,6 +23,11 @@ than restarting at 1, so a test id is unique across the whole suite.
    to render instead, not the empty state.
 5. **Leave no trace.** Edit-mode tests must restore the original state and
    never click Save.
+6. **AI briefing tests check that a briefing generates, not that its
+   figures match on-screen data.** This module's non-KPI widgets are charts,
+   whose data points never render as text in the DOM - only axis gridlines
+   and month labels do - so there is nothing reliable to compare a quoted
+   figure against. See Portfolio's retired TC-PI-017 for the full rationale.
 
 ---
 
@@ -196,3 +201,52 @@ than restarting at 1, so a test id is unique across the whole suite.
   5. Compare the KPI card order and values against the recorded state
 - Expected: Edit mode opens and closes cleanly and the layout is identical
   to before the test ran
+
+---
+
+## Section: AI Briefing
+
+## TC-CS-032: Standard AI briefing generates
+- Priority: High
+- Section: AI Briefing
+- Type: ui
+- Status: Automated
+- Tags: sanity, regression
+- Precondition: User is on the Community Summary page
+- Steps:
+  1. Navigate to the Community Summary page
+  2. Open the AI briefing
+  3. Select the standard briefing and generate it
+  4. Wait for the briefing to finish generating
+  5. Verify briefing content is displayed
+- Expected: A standard briefing is produced with no error
+
+## TC-CS-033: Custom AI briefing generates
+- Priority: High
+- Section: AI Briefing
+- Type: ui
+- Status: Automated
+- Tags: sanity, regression
+- Precondition: User is on the Community Summary page
+- Steps:
+  1. Navigate to the Community Summary page
+  2. Open the AI briefing
+  3. Select the custom briefing
+  4. Provide the custom input the form requires
+  5. Wait for the briefing to finish generating
+  6. Verify briefing content is displayed
+- Expected: A custom briefing is produced with no error
+
+## TC-CS-034: Briefing does not show an error state
+- Priority: Medium
+- Section: AI Briefing
+- Type: ui
+- Status: Automated
+- Tags: regression, negative
+- Precondition: User is on the Community Summary page
+- Steps:
+  1. Navigate to the Community Summary page
+  2. Open the AI briefing
+  3. Generate a briefing
+  4. Verify no error message is displayed
+- Expected: The briefing completes successfully with content

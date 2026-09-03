@@ -184,3 +184,46 @@ test.describe('Community Summary - Edit Mode', () => {
     expect(after, 'layout changed after entering and leaving edit mode').toEqual(before);
   });
 });
+
+test.describe('Community Summary - AI Briefing', () => {
+  // Briefings are LLM calls - they need far longer than a normal test.
+  test.setTimeout(420000);
+
+  // Test Case: TC-CS-032
+  test('TC-CS-032: standard AI briefing generates @sanity @regression', async ({
+    communitySummaryPage,
+  }) => {
+    await communitySummaryPage.goto();
+
+    await communitySummaryPage.openAiBriefing();
+    await communitySummaryPage.generateStandardBriefing();
+
+    const text = await communitySummaryPage.getBriefingText();
+    expect(text.length, 'briefing is empty').toBeGreaterThan(0);
+  });
+
+  // Test Case: TC-CS-033
+  test('TC-CS-033: custom AI briefing generates @sanity @regression', async ({
+    communitySummaryPage,
+  }) => {
+    await communitySummaryPage.goto();
+
+    await communitySummaryPage.openAiBriefing();
+    await communitySummaryPage.generateCustomBriefing();
+
+    const text = await communitySummaryPage.getBriefingText();
+    expect(text.length, 'custom briefing is empty').toBeGreaterThan(0);
+  });
+
+  // Test Case: TC-CS-034
+  test('TC-CS-034: briefing does not show an error state @regression @negative', async ({
+    communitySummaryPage,
+  }) => {
+    await communitySummaryPage.goto();
+
+    await communitySummaryPage.openAiBriefing();
+    await communitySummaryPage.generateStandardBriefing();
+
+    expect(await communitySummaryPage.briefingHasError()).toBe(false);
+  });
+});

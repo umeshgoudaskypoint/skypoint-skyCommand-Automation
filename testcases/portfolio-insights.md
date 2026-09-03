@@ -268,20 +268,17 @@ Tenant under test: **Westmont**
   5. Verify briefing content is displayed
 - Expected: A standard briefing is produced with no error
 
-## TC-PI-017: Standard briefing figures match the values shown in the UI
-- Priority: High
-- Section: AI Briefing
-- Type: ui
-- Status: Not Automated
-- Tags: sanity, regression
-- Precondition: A standard briefing has been generated
-- Steps:
-  1. Navigate to the Portfolio page
-  2. Read and record the values shown on the KPI cards
-  3. Open the AI briefing and generate the standard briefing
-  4. Extract the numeric figures quoted in the briefing text
-  5. Compare each quoted figure against the recorded KPI values
-- Expected: Figures quoted in the briefing match the values on screen
+## TC-PI-017: REMOVED - see rationale below
+- Status: Removed
+- This case compared numeric figures quoted in the briefing against the
+  values shown on screen. Retired by QA decision: AI briefing tests check
+  that a briefing GENERATES, not that its figures match on-screen data.
+  Portfolio's briefing legitimately cites derived and per-community figures
+  (from the Community Scorecard, or simple arithmetic like "181 vacant
+  units") that a DOM-only check can't reliably tell apart from a real
+  content error, and this class of check does not generalise to modules
+  whose widgets are charts (their data points never render as text at all -
+  see Community Summary). The id is retired, not reused.
 
 ## TC-PI-018: Custom AI briefing generates
 - Priority: High

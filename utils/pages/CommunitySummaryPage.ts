@@ -63,6 +63,15 @@ export class CommunitySummaryPage extends BasePage {
     // Tabs
     tab: '[role="tab"]',
 
+    // AI briefing (same component as Portfolio - see PortfolioInsightsPage
+    // for why the custom flow needs its own generate-button selector)
+    aiBriefingButton: '[data-testid="button-global-ai-briefing"]',
+    briefingContainer: '[data-testid="ai-briefing-container"]',
+    standardBriefingOption: 'button:has-text("Standard Briefing")',
+    customBriefingOption: 'button:has-text("Custom AI Analysis")',
+    generateButton: 'button:has-text("Generate Briefing")',
+    customGenerateButton: 'button:has-text("Generate Custom Briefing")',
+
     // Errors
     errorState: '[role="alert"], [class*="destructive"]',
   };
@@ -368,4 +377,113 @@ export class CommunitySummaryPage extends BasePage {
         .catch(() => '')) || '';
     return /not configured|no forecast runs yet/i.test(text);
   }
+
+  // ---------- AI briefing ----------
+  async openAiBriefing(): Promise<void> {
+    await this.clickElement(this.selectors.aiBriefingButton);
+    await this.page
+      .locator(this.selectors.briefingContainer)
+      .waitFor({ state: 'visible', timeout: 30000 })
+      .catch(() => {});
+    await this.page.waitForTimeout(2000);
+  }
+
+  /**
+   * Wait for a briefing to finish generating - see
+   * PortfolioInsightsPage.waitForBriefingToGenerate for why this can't just
+   * wait for "some text": the panel already has >200 chars of pre-generation
+   * option-card text, so it must wait for that text to CHANGE, then wait for
+   * the length to STOP GROWING (stable across 3 polls) as the response
+   * streams in.
+   */
+  private async waitForBriefingToGenerate(baseline: string, timeout = 360000): Promise<void> {
+    const container = this.page.locator(this.selectors.briefingContainer);
+    const deadline = Date.now() + timeout;
+
+    const readText = async () =>
+      ((await container.textContent().catch(() => '')) || '').trim();
+
+    let changed = false;
+    while (Date.now() < deadline && !changed) {
+      await this.page.waitForTimeout(3000);
+      const text = await readText();
+      if (text !== baseline && text.length > baseline.length + 100) {
+        changed = true;
+      }
+    }
+
+    if (!changed) {
+      throw new Error(
+        `Briefing did not generate within ${timeout / 1000}s - the panel content ` +
+          'never changed from its pre-generation state.'
+      );
+    }
+
+    let previousLength = -1;
+    let stableCount = 0;
+    while (Date.now() < deadline) {
+      await this.page.waitForTimeout(4000);
+      const length = (await readText()).length;
+
+      if (length === previousLength) {
+        stableCount++;
+        if (stableCount >= 3) return;
+      } else {
+        stableCount = 0;
+      }
+      previousLength = length;
+    }
+  }
+
+  /**
+   * Selecting a briefing type only ARMS it - "Generate Briefing" actually
+   * runs it (see PortfolioInsightsPage for the trap this avoids: missing
+   * that second click waits for a briefing that was never requested).
+   */
+  async generateStandardBriefing(): Promise<void> {
+    const container = this.page.locator(this.selectors.briefingContainer);
+
+    await this.clickElement(this.selectors.standardBriefingOption);
+    await this.page.waitForTimeout(2000);
+
+    const baseline = ((await container.textContent().catch(() => '')) || '').trim();
+
+    await this.clickElement(this.selectors.generateButton);
+    await this.waitForBriefingToGenerate(baseline);
+  }
+
+  async generateCustomBriefing(): Promise<void> {
+    const container = this.page.locator(this.selectors.briefingContainer);
+
+    await this.clickElement(this.selectors.customBriefingOption);
+    await this.page.waitForTimeout(2000);
+
+    const input = this.page.locator('textarea, input[type="text"]').last();
+    if (await input.isVisible({ timeout: 15000 }).catch(() => false)) {
+      await input.fill('Summarise the key metrics shown on this dashboard.');
+    }
+
+    const baseline = ((await container.textContent().catch(() => '')) || '').trim();
+
+    if (await this.isVisible(this.selectors.customGenerateButton, 10000)) {
+      await this.clickElement(this.selectors.customGenerateButton);
+    } else if (await this.isVisible(this.selectors.generateButton, 5000)) {
+      await this.clickElement(this.selectors.generateButton);
+    } else {
+      await this.pressKey('Enter');
+    }
+
+    await this.waitForBriefingToGenerate(baseline);
+  }
+
+  async getBriefingText(): Promise<string> {
+    return await this.getText(this.selectors.briefingContainer);
+  }
+
+  async briefingHasError(): Promise<boolean> {
+    const container = this.page.locator(this.selectors.briefingContainer);
+    const text = ((await container.textContent().catch(() => '')) || '').toLowerCase();
+    return /error|failed|something went wrong|unable to generate/.test(text);
+  }
+
 }
